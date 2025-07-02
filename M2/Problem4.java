@@ -30,7 +30,18 @@ public class Problem4 extends BaseClass {
         
         for(int i = 0; i <arr.length; i++){
             // Start Solution Edits
+            //oka -07-02-25
+             phrase = phrase.trim().replaceAll("\\s{2,}", " ");
+             StringBuilder t = new StringBuilder();
+             for (String w : phrase.split(" ")) {
+                if (!w.isEmpty()) {
+                    t.append(Character.toUpperCase(w.charAt(0)))
+                     .append(w.substring(1).toLowerCase())
+                     .append(" ");
+                }
+            }
             
+
              // End Solution Edits
             System.out.println(String.format("Index[%d] \"%s\" | Middle: \"%s\"",i, placeholderForModifiedPhrase, placeholderForMiddleCharacters));
         }
