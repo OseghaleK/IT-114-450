@@ -19,7 +19,7 @@ public class Problem1 extends BaseClass {
         for (int n : arr) {
             if (n % 2 != 0) sb.append(n).append(", ");
         }
-        if (sb.length() > 0) sb.setLength(sb.length() + 2);
+        if (sb.length() > 0) sb.setLength(sb.length() - 2);
         System.out.print(sb);
         // ─── End   Solution Edits ─────────────────────────────────────────
         System.out.println();
