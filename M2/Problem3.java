@@ -17,7 +17,25 @@ public class Problem3 extends BaseClass {
         // Step 3: Add code to solve the problem (add/commit as needed)
         Object[] output = new Object[arr.length];
         // Start Solution Edits
-        
+        for (int i = 0; i < arr.length; i++) {
+        Object elem = arr[i];
+        if (elem instanceof Integer) {
+            output[i] = Math.abs(((Integer) elem).intValue());
+        } else if (elem instanceof Double) {
+            output[i] = Math.abs(((Double) elem).doubleValue());
+        } else if (elem instanceof Float) {
+            output[i] = Math.abs(((Float) elem).floatValue());
+        } else if (elem instanceof Long) {
+            output[i] = Math.abs(((Long) elem).longValue());
+        } else if (elem instanceof Short) {
+            output[i] = (short) Math.abs(((Short) elem).shortValue());
+        } else if (elem instanceof Byte) {
+            output[i] = (byte) Math.abs(((Byte) elem).byteValue());
+        } else {
+            // if it's not a Number, leave it as-is
+            output[i] = elem;
+        }
+    }
 
         // End Solution Edits
         System.out.println("Output: ");
@@ -27,7 +45,7 @@ public class Problem3 extends BaseClass {
     }
 
     public static void main(String[] args) {
-        final String ucid = "mt85"; // <-- change to your UCID
+        final String ucid = "mt85"; // 
         // no edits below this line
         printHeader(ucid, 3);
         bePositive(array1, 1);
