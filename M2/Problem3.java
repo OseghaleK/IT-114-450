@@ -1,5 +1,5 @@
 package M2;
-
+ // UCID: oka   Date: 07-02-25
 public class Problem3 extends BaseClass {
     private static Integer[] array1 = {42, -17, 89, -256, 1024, -4096, 50000, -123456};
     private static Double[] array2 = {3.14159265358979, -2.718281828459, 1.61803398875, -0.5772156649, 0.0000001, -1000000.0};
