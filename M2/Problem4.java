@@ -23,23 +23,30 @@ public class Problem4 extends BaseClass {
         // if not enough characters assign "Not enough characters"
 
         // Step 1: sketch out plan using comments (include ucid and date)
-        // Step 2: Add/commit your outline of comments (required for full credit)
-        // Step 3: Add code to solve the problem (add/commit as needed)
+        //oka -07-02-25
+        // Plan:
+        // (1) Clean and format each phrase by removing non-alphanumeric characters (except spaces),
+        //     trimming spaces, converting to Title Case, and collapsing duplicate spaces.
+        // (2) Store the result in placeholderForModifiedPhrase.
+        // (3) If the cleaned phrase is at least 3 characters, extract the middle 3 characters.
+        //     Start the extraction from one character before the middle index.
+        // (4) If not enough characters, assign "Not enough characters".
+
         String placeholderForModifiedPhrase = "";
         String placeholderForMiddleCharacters = "";
 
         for(int i = 0; i < arr.length; i++) {
             // Start Solution Edits
             //oka -07-02-25
-            String phrase = arr[i]; // get current phrase
+            String phrase = arr[i];
 
-            // Challenge 1: Remove non-alphanumeric characters except spaces
+            // Step 1: Remove non-alphanumeric except spaces
             phrase = phrase.replaceAll("[^a-zA-Z0-9 ]", "");
 
-            // Challenge 3: Trim and reduce multiple spaces to one
+            // Step 2: Trim and collapse duplicate spaces
             phrase = phrase.trim().replaceAll("\\s{2,}", " ");
 
-            // Challenge 2: Convert to Title Case
+            // Step 3: Convert to Title Case
             StringBuilder t = new StringBuilder();
             for (String w : phrase.split(" ")) {
                 if (!w.isEmpty()) {
@@ -50,7 +57,7 @@ public class Problem4 extends BaseClass {
             }
             placeholderForModifiedPhrase = t.toString().trim();
 
-            // Challenge 4: Extract middle 3 characters
+            // Step 4: Extract middle 3 characters
             if (placeholderForModifiedPhrase.length() >= 3) {
                 int mid = placeholderForModifiedPhrase.length() / 2;
                 if (placeholderForModifiedPhrase.length() % 2 == 0) {
