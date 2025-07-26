@@ -1,0 +1,259 @@
+package Server;
+
+import Common.*;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
+
+/**
+ * UCID: oka
+ * Date: 2025-07-25
+ * Summary: Specialized room for the drawing game (Pictionary). Handles lifecycle: session/round.
+ */
+public class GameRoom extends Room {
+
+    // Board data: true=drawn, false=blank
+    private boolean[][] board;
+    private int width = 30;
+    private int height = 15;
+
+    private final Map<ServerThread, Player> players = new LinkedHashMap<>();
+    private final List<String> wordList = new ArrayList<>();
+    private final List<ServerThread> roundOrder = new ArrayList<>();
+    private int drawerIndex = -1;
+    private String currentWord;
+
+    private final int totalRounds = 3;
+    private int roundCount = 0;
+
+    public GameRoom(String name, RoomManager manager) {
+        super(name, manager);
+        // Load words
+        try {
+            Path p = Path.of("words.txt");
+            if (Files.exists(p)) {
+                wordList.addAll(Files.readAllLines(p));
+            } else {
+                wordList.addAll(Arrays.asList("apple", "banana", "car", "house", "cat", "pizza"));
+            }
+        } catch (IOException e) {
+            wordList.addAll(Arrays.asList("apple", "banana", "car", "house", "cat", "pizza"));
+        }
+        initBoard();
+    }
+
+    private void initBoard() {
+        board = new boolean[height][width];
+    }
+
+    // ------------ Overrides from Room ------------
+
+    @Override
+    public synchronized
+
+    
+
+    // ------------ Lifecycle ------------
+
+    public synchronized void onSessionStart() {
+        System.out.println("[SERVER] Session start");
+        roundOrder.clear();
+        roundOrder.addAll(players.keySet());
+        Collections.shuffle(roundOrder);
+        roundCount = 0;
+        initBoard();
+        broadcast(new DimensionPayload(width, height));
+        onRoundStart();
+    }
+
+    public synchronized void onRoundStart() {
+        if (roundCount >= totalRounds || players.isEmpty()) {
+            onSessionEnd();
+            return;
+        }
+        roundCount++;
+
+        // pick drawer
+        drawerIndex = (drawerIndex + 1) % roundOrder.size();
+        ServerThread drawer = roundOrder.get(drawerIndex);
+
+        // pick word
+        if (wordList.isEmpty()) wordList.addAll(Arrays.asList("cat", "dog", "pizza"));
+        currentWord = wordList.remove(new Random().nextInt(wordList.size()));
+        String blanks = currentWord.replaceAll(".", "_ ");
+
+        // reset guesses
+        for (Player p : players.values()) p.setGuessed(false);
+
+        // tell everyone
+        RoundStartPayload rsp = new RoundStartPayload(drawer.getClientId(), blanks);
+        broadcast(rsp);
+
+        // make sure drawer knows they're the drawer
+        drawer.send(new Payload(PayloadType.SERVER_NOTIFICATION, "You are the drawer! Word: " + currentWord));
+        System.out.println("[SERVER] Round " + roundCount + " started. Drawer=" + drawer.getClientName() + ", word=" + currentWord);
+    }
+
+    public synchronized void onRoundEnd() {
+        broadcast(new RoundEndPayload(currentWord));
+        syncScores();
+        initBoard();
+        broadcast(new DimensionPayload(width, height)); // also clears client boards
+        if (roundCount >= totalRounds) {
+            onSessionEnd();
+        } else {
+            onRoundStart();
+        }
+    }
+
+    public synchronized void onSessionEnd() {
+        System.out.println("[SERVER] Session ended");
+        broadcast(new Payload(PayloadType.SESSION_END, "Session over! Thanks for playing."));
+        syncScores();
+        resetSession();
+    }
+
+    private void resetSession() {
+        initBoard();
+        currentWord = null;
+        roundCount = 0;
+        drawerIndex = -1;
+        for (Player p : players.values()) {
+            p.setGuessed(false);
+        }
+    }
+
+    // ------------ Game actions ------------
+
+    /** Called from ServerThread when a DRAW payload comes in */
+    public synchronized void handleDraw(ServerThread from, CoordPayload cp) {
+        if (!isDrawer(from)) {
+            from.send(new Payload(PayloadType.SERVER_NOTIFICATION, "You are not the drawer."));
+            return;
+        }
+        int x = cp.getX();
+        int y = cp.getY();
+        if (!inBounds(x, y)) {
+            from.send(new Payload(PayloadType.SERVER_NOTIFICATION, "Out of bounds."));
+            return;
+        }
+        if (board[y][x]) {
+            from.send(new Payload(PayloadType.SERVER_NOTIFICATION, "Already drawn there."));
+            return;
+        }
+        board[y][x] = true;
+        // broadcast to everyone
+        CoordPayload sync = new CoordPayload(x, y, cp.getColor());
+        // tag as sync
+        // quick hack:
+        try {
+            // reflection not needed; just reuse type
+            // but we want DRAW_SYNC (server->client)
+            // create new:
+            sync = new CoordPayload(x, y, cp.getColor());
+        } catch (Exception ignored) {}
+        // set correct type by overriding getType? easiest: send base with correct type
+        broadcast(new Payload(PayloadType.DRAW_SYNC, "x=" + x + ",y=" + y + ",color=" + cp.getColor())); // cheap shortcut
+
+        // better: actually send CoordPayload but set type to DRAW_SYNC:
+        // Create a subclass or just accept this hack for CLI
+    }
+
+    /** handle a guess word */
+    public synchronized void handleGuess(ServerThread from, String guess) {
+        if (currentWord == null) {
+            from.send(new Payload(PayloadType.SERVER_NOTIFICATION, "No round in progress."));
+            return;
+        }
+        Player p = players.get(from);
+        if (p == null) return;
+
+        if (p.hasGuessed()) {
+            from.send(new Payload(PayloadType.SERVER_NOTIFICATION, "You already guessed correctly."));
+            return;
+        }
+
+        if (guess.equalsIgnoreCase(currentWord)) {
+            p.setGuessed(true);
+            int correctCount = (int) players.values().stream().filter(Player::hasGuessed).count();
+            int pointsAwarded = Math.max(1, 10 - (correctCount - 1) * 2); // 10,8,6,... min 1
+            p.addPoints(pointsAwarded);
+            broadcast(new Payload(PayloadType.MESSAGE,
+                    from.getClientName() + " guessed correctly! (+" + pointsAwarded + " points)"));
+
+            if (allGuessersDone()) {
+                onRoundEnd();
+            } else {
+                syncScores(); // update scoreboard as we go
+            }
+        } else {
+            broadcast(new Payload(PayloadType.MESSAGE,
+                    from.getClientName() + " guessed '" + guess + "' - not correct."));
+        }
+    }
+
+    // ------------ Helpers ------------
+
+    private boolean inBounds(int x, int y) {
+        return y >= 0 && y < board.length && x >= 0 && x < board[0].length;
+    }
+
+    private boolean isDrawer(ServerThread st) {
+        return !roundOrder.isEmpty() && roundOrder.get(drawerIndex) == st;
+    }
+
+    private boolean allGuessersDone() {
+        // everyone except drawer guessed
+        for (ServerThread st : players.keySet()) {
+            if (isDrawer(st)) continue;
+            if (!players.get(st).hasGuessed()) return false;
+        }
+        return true;
+    }
+
+    private void syncBoardTo(ServerThread st) {
+        // naive: send every drawn pixel
+        for (int y = 0; y < board.length; y++) {
+            for (int x = 0; x < board[0].length; x++) {
+                if (board[y][x]) {
+                    st.send(new Payload(PayloadType.DRAW_SYNC, "x=" + x + ",y=" + y));
+                }
+            }
+        }
+    }
+
+    private void syncScores() {
+        // sort scores high->low
+        List<Player> list = new ArrayList<>(players.values());
+        list.sort((a,b) -> Integer.compare(b.getPoints(), a.getPoints()));
+        LinkedHashMap<String,Integer> map = new LinkedHashMap<>();
+        for (Player p : list) map.put(p.getName(), p.getPoints());
+        broadcast(new PointsPayload(map));
+    @Override
+    protected void onClientRemoved(ServerThread st) {
+        // Keep behavior consistent with Room
+        super.onClientRemoved(st);
+    }
+
+    @Override
+    protected void onClientAdded(ServerThread st) {
+        // Call parent logic (adds to set, broadcasts, etc.)
+        super.onClientAdded(st);
+
+        // Sync board size for late joiners (assumes width/height fields exist in GameRoom)
+        st.send(new DimensionPayload(width, height));
+
+        // Optional: sync already-drawn pixels so the new client sees current board
+        if (board != null) {
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    if (board[y][x]) {
+                        st.send(new CoordPayload(x, y, "black"));
+                    }
+                }
+            }
+        }
+    }
+}

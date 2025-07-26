@@ -1,53 +1,64 @@
 package Server;
 
-import Common.Payload;
-import Common.PayloadType;
+import Common.*;
 
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
 
-// UCID: oka
-// Date: 2025-07-24
-// Summary: Handles a single client connection; processes payloads & room changes.
+/**
+ * UCID: oka
+ * Date: 2025-07-25
+ * Summary: Handles one client connection. Reads Payloads and routes them to Room/Game logic.
+ */
 public class ServerThread extends Thread {
+
+    private static int NEXT_ID = 1;
+
     private final Socket socket;
-    private final ServerMain server;
+    private final RoomManager roomManager;
     private ObjectOutputStream out;
-    private ObjectInputStream in;
+    private ObjectInputStream  in;
+
+    private Room  currentRoom;
+    private final int id;
     private String clientName = "anon";
-    private Room currentRoom;
 
-    public ServerThread(Socket socket, ServerMain server) {
+    public ServerThread(Socket socket, RoomManager rm) {
         this.socket = socket;
-        this.server = server;
+        this.roomManager = rm;
+        this.id = NEXT_ID++;
     }
 
+    /** Avoid overriding Thread.getId(); use our own accessor. */
+    public int getClientId() { return id; }
     public String getClientName() { return clientName; }
-
-    public void sendMessage(String msg) {
-        try {
-            out.writeObject(new Payload(PayloadType.MESSAGE, msg));
-            out.flush();
-        } catch (Exception ignored) {}
-    }
 
     @Override
     public void run() {
         try {
             out = new ObjectOutputStream(socket.getOutputStream());
             in  = new ObjectInputStream(socket.getInputStream());
-
-            currentRoom = server.getRoomManager().getOrCreate("lobby");
-            currentRoom.add(this);
-            sendMessage("[SYSTEM] Connected. You are in lobby.");
+            send(new Payload(PayloadType.ASSIGN_ID, Integer.toString(id)));
+// join lobby by default
+            switchRoom(roomManager.getLobby());
 
             while (true) {
-                Payload p = (Payload) in.readObject();
+                Object obj = in.readObject();
+                if (!(obj instanceof Payload)) {
+                    System.out.println("[SERVER] Unknown object: " + obj);
+                    continue;
+                }
+                Payload p = (Payload) obj;
+
+                // If your Payload doesn't have these setters, remove them
+                p.setSenderId(id);
+                p.setSenderName(clientName);
+
                 handlePayload(p);
             }
         } catch (Exception e) {
-            // connection lost or client quit
+            System.out.println("[SERVER] Client error: " + e.getMessage());
         } finally {
             cleanup();
         }
@@ -55,48 +66,94 @@ public class ServerThread extends Thread {
 
     private void handlePayload(Payload p) {
         switch (p.getType()) {
-            case NAME -> {
-                clientName = p.getData();
-                sendMessage("[SYSTEM] Name set to " + clientName);
-            }
-            case MESSAGE -> {
-                if (currentRoom != null) currentRoom.broadcast(clientName + ": " + p.getData());
-            }
-            case CREATE_ROOM -> {
-                Room r = server.getRoomManager().getOrCreate(p.getData());
-                moveToRoom(r);
-                sendMessage("[SYSTEM] Created & joined room: " + r.getName());
-            }
-            case JOIN_ROOM -> {
-                Room r2 = server.getRoomManager().get(p.getData());
-                if (r2 != null) {
-                    moveToRoom(r2);
-                    sendMessage("[SYSTEM] Joined room: " + r2.getName());
-                } else {
-                    sendMessage("[SYSTEM] Room does not exist.");
+
+            // -------- MS1 ----------
+            case NAME:
+                clientName = p.getMessage();
+                send(new Payload(PayloadType.SERVER_NOTIFICATION,
+                        "Name set to " + clientName));
+                break;
+
+            case MESSAGE:
+                if (currentRoom != null) {
+                    currentRoom.broadcast(new Payload(
+                            PayloadType.MESSAGE,
+                            clientName + ": " + p.getMessage()));
                 }
+                break;
+
+            case CREATE_ROOM: {
+                String roomName = p.getMessage();
+                // treat new rooms as GameRooms for MS2
+                Room r = roomManager.getOrCreateRoom(roomName, true);
+                switchRoom(r);
+                if (r instanceof GameRoom gr) {
+                    gr.onSessionStart(); // quick start
+                }
+                break;
             }
-            case LEAVE_ROOM -> {
-                moveToRoom(server.getRoomManager().getOrCreate("lobby"));
-                sendMessage("[SYSTEM] Back to lobby");
+
+            case JOIN_ROOM: {
+                String roomName = p.getMessage();
+                Room r = roomManager.getRoom(roomName);
+                if (r == null) {
+                    send(new Payload(PayloadType.SERVER_NOTIFICATION,
+                            "Room not found"));
+                } else {
+                    switchRoom(r);
+                }
+                break;
             }
-            case DISCONNECT -> {
-                sendMessage("[SYSTEM] Disconnecting...");
+
+            case LEAVE_ROOM:
+                switchRoom(roomManager.getLobby());
+                break;
+
+            case DISCONNECT:
                 cleanup();
-            }
-            default -> {}
+                return; // stop processing after disconnect
+
+            // -------- MS2 ----------
+            case DRAW: // Client -> Server: CoordPayload
+                if (currentRoom instanceof GameRoom gr) {
+                    gr.handleDraw(this, (CoordPayload) p);
+                }
+                break;
+
+            case GUESS: // Client -> Server: guess text in message
+                if (currentRoom instanceof GameRoom gr2) {
+                    gr2.handleGuess(this, p.getMessage());
+                }
+                break;
+
+            default:
+                System.out.println("[SERVER] Unhandled payload: " + p);
         }
     }
 
-    private void moveToRoom(Room newRoom) {
-        if (currentRoom != null) currentRoom.remove(this);
+    private void switchRoom(Room newRoom) {
+        if (currentRoom != null) {
+            currentRoom.removeClient(this);
+        }
         currentRoom = newRoom;
-        currentRoom.add(this);
+        if (currentRoom != null) {
+            currentRoom.addClient(this);
+        }
+    }
+
+    public void send(Payload p) {
+        try {
+            out.writeObject(p);
+            out.flush();
+        } catch (Exception e) {
+            System.out.println("[SERVER] Send fail: " + e.getMessage());
+        }
     }
 
     private void cleanup() {
-        try { if (currentRoom != null) currentRoom.remove(this); } catch (Exception ignored) {}
-        try { socket.close(); } catch (Exception ignored) {}
-        server.removeClient(this);
+        try { if (currentRoom != null) currentRoom.removeClient(this); } catch (Exception ignore) {}
+        try { socket.close(); } catch (Exception ignore) {}
+        ServerMain.removeClient(this); // make sure this exists, or remove
     }
 }
+

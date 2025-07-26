@@ -1,23 +1,40 @@
 package Server;
 
+import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
-// UCID: oka
-// Date: 2025-07-24
-// Summary: Creates and returns rooms. Always provides a default "lobby".
+/**
+ * UCID: oka
+ * Date: 2025-07-25
+ * Summary: Manages rooms. Lobby is default; can create GameRooms.
+ */
 public class RoomManager {
-    private final Map<String, Room> rooms = new ConcurrentHashMap<>();
+    private final Map<String, Room> rooms = new HashMap<>();
 
     public RoomManager() {
-        rooms.put("lobby", new Room("lobby"));
+        rooms.put("lobby", new Room("lobby", this));
     }
 
-    public Room getOrCreate(String name) {
-        return rooms.computeIfAbsent(name, Room::new);
+    public synchronized Room getRoom(String name) {
+        return rooms.get(name.toLowerCase());
     }
 
-    public Room get(String name) {
-        return rooms.get(name);
+    public synchronized Room getOrCreateRoom(String name, boolean gameRoom) {
+        name = name.toLowerCase();
+        Room r = rooms.get(name);
+        if (r == null) {
+            if (gameRoom) {
+                r = new GameRoom(name, this);
+            } else {
+                r = new Room(name, this);
+            }
+            rooms.put(name, r);
+        }
+        return r;
+    }
+
+    public synchronized Room getLobby() {
+        return rooms.get("lobby");
     }
 }
+

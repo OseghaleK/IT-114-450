@@ -1,33 +1,44 @@
 package Client;
 
-import Common.Payload;
-import Common.PayloadType;
+import Common.*;
 
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.util.Arrays;
 import java.util.Scanner;
 
-// UCID: oka
-// Date: 2025-07-24
-// Summary: CLI client supporting /name, /connect, /createroom, /joinroom, /leave, /msg, /quit.
+/**
+ * UCID: oka
+ * Date: 2025-07-25
+ * Summary: CLI client for MS1 + MS2 drawing game.
+ */
 public class ClientMain {
+
+    // --- Networking ---
     private static ObjectOutputStream out;
-    private static ObjectInputStream in;
+    private static ObjectInputStream  in;
     private static Socket socket;
     private static String name = "anon";
 
+    // --- MS2 state ---
+    private static char[][] board = new char[0][0]; // built after DIMENSION
+    private static boolean iAmDrawer = false;
+    private static int myId = -1; // only if server sends it (optional)
+
     public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
-        System.out.println("[SYSTEM] Commands: /name, /connect, /createroom, /joinroom, /leave, /msg, /quit");
+        printHelp();
 
         while (true) {
             String line = sc.nextLine().trim();
+            if (line.isEmpty()) continue;
 
             if (line.startsWith("/name ")) {
                 name = line.substring(6).trim();
                 send(new Payload(PayloadType.NAME, name));
                 System.out.println("[SYSTEM] Name set locally to " + name);
+
             } else if (line.startsWith("/connect ")) {
                 String[] parts = line.split("\\s+");
                 if (parts.length < 3) {
@@ -35,24 +46,45 @@ public class ClientMain {
                     continue;
                 }
                 connect(parts[1], Integer.parseInt(parts[2]));
+
             } else if (line.startsWith("/createroom ")) {
                 send(new Payload(PayloadType.CREATE_ROOM, line.substring(12).trim()));
+
             } else if (line.startsWith("/joinroom ")) {
                 send(new Payload(PayloadType.JOIN_ROOM, line.substring(10).trim()));
+
             } else if (line.equals("/leave")) {
                 send(new Payload(PayloadType.LEAVE_ROOM, ""));
+
             } else if (line.startsWith("/msg ")) {
                 send(new Payload(PayloadType.MESSAGE, line.substring(5)));
+
+            } else if (line.equals("/board")) {
+                printBoard();
+
+            } else if (line.startsWith("/draw ")) {  // MS2
+                handleDrawCommand(line.substring(6).trim());
+
+            } else if (line.startsWith("/guess ")) { // MS2
+                String guess = line.substring(7).trim();
+                send(new Payload(PayloadType.GUESS, guess));
+
             } else if (line.equals("/quit")) {
                 send(new Payload(PayloadType.DISCONNECT, ""));
                 close();
                 break;
+
+            } else if (line.equals("/help")) {
+                printHelp();
+
             } else {
-                System.out.println("Unknown command.");
+                System.out.println("Unknown command. Type /help");
             }
         }
         sc.close();
     }
+
+    // ---------------- Networking helpers ----------------
 
     private static void connect(String host, int port) {
         try {
@@ -60,6 +92,7 @@ public class ClientMain {
             out = new ObjectOutputStream(socket.getOutputStream());
             in  = new ObjectInputStream(socket.getInputStream());
             new ClientReader(in).start();
+
             send(new Payload(PayloadType.NAME, name));
             System.out.println("[SYSTEM] Connected to " + host + ":" + port);
         } catch (Exception e) {
@@ -67,7 +100,7 @@ public class ClientMain {
         }
     }
 
-    private static void send(Payload p) {
+    public static void send(Payload p) {
         try {
             if (out != null) {
                 out.writeObject(p);
@@ -81,6 +114,131 @@ public class ClientMain {
     }
 
     private static void close() {
-        try { socket.close(); } catch (Exception ignored) {}
+        try { if (socket != null) socket.close(); } catch (Exception ignore) {}
     }
+
+    private static void printHelp() {
+        System.out.println("[SYSTEM] MS1: /name /connect /createroom /joinroom /leave /msg /quit");
+        System.out.println("[SYSTEM] MS2: /draw x,y  /guess word  /board");
+    }
+
+    // ---------------- MS2 helpers ----------------
+
+    private static void handleDrawCommand(String coordsText) {
+        if (!iAmDrawer) {
+            System.out.println("[SYSTEM] You are not the drawer this round.");
+            return;
+        }
+        String[] xy = coordsText.split(",");
+        if (xy.length != 2) {
+            System.out.println("Usage: /draw x,y");
+            return;
+        }
+        try {
+            int x = Integer.parseInt(xy[0].trim());
+            int y = Integer.parseInt(xy[1].trim());
+            if (!inBounds(x, y)) {
+                System.out.println("[SYSTEM] Out of bounds.");
+                return;
+            }
+            if (board.length > 0 && board[y][x] == 'X') {
+                System.out.println("[SYSTEM] Already drawn there.");
+                return;
+            }
+            send(new CoordPayload(x, y, "black"));
+        } catch (NumberFormatException nfe) {
+            System.out.println("Usage: /draw x,y  (x and y must be ints)");
+        }
+    }
+
+    private static boolean inBounds(int x, int y) {
+        return board.length > 0 &&
+               y >= 0 && y < board.length &&
+               x >= 0 && x < board[0].length;
+    }
+
+    private static void printBoard() {
+        if (board.length == 0) {
+            System.out.println("[SYSTEM] Board not initialized yet.");
+            return;
+        }
+        System.out.println("=== BOARD ===");
+        for (char[] row : board) {
+            for (char c : row) System.out.print(c);
+            System.out.println();
+        }
+        System.out.println("=============");
+    }
+
+    // --------------- Called by ClientReader ----------------
+
+    public static void handlePayload(Payload p) {
+        switch (p.getType()) {
+            case DIMENSION: {
+                DimensionPayload dp = (DimensionPayload) p;
+                applyDimension(dp.getWidth(), dp.getHeight());
+                break;
+            }
+            case DRAW_SYNC: {
+                CoordPayload cp = (CoordPayload) p;
+                applyDraw(cp.getX(), cp.getY(), cp.getColor());
+                break;
+            }
+            case POINTS: {
+                applyPoints((PointsPayload) p);
+                break;
+            }
+            case ROUND_START: {
+                if (p instanceof RoundStartPayload rsp) {
+                    setDrawer(rsp.getDrawerId() == myId); // if you track myId
+                    System.out.println("[SYSTEM] Blanks: " + rsp.getBlanks());
+                } else {
+                    System.out.println("[SYSTEM] Round started!");
+                }
+                break;
+            }
+            case ROUND_END: {
+                if (p instanceof RoundEndPayload rep) {
+                    System.out.println("[SYSTEM] Round ended. Word was: " + rep.getWord());
+                } else {
+                    System.out.println("[SYSTEM] Round ended.");
+                }
+                break;
+            }
+            case MESSAGE:
+            case SERVER_NOTIFICATION:
+                System.out.println(p.getMessage());
+                break;
+
+            default:
+                // handle other chat payloads you already had
+                System.out.println("[DEBUG] Unhandled payload: " + p);
+                break;
+        }
+    }
+
+    public static void applyDimension(int w, int h) {
+        board = new char[h][w];
+        for (char[] row : board) Arrays.fill(row, ' ');
+        System.out.println("[SYSTEM] Board size set to " + w + "x" + h);
+        printBoard();
+    }
+
+    public static void applyDraw(int x, int y, String color) {
+        if (inBounds(x, y)) {
+            board[y][x] = 'X';
+            printBoard();
+        }
+    }
+
+    public static void applyPoints(PointsPayload pp) {
+        System.out.println("[SYSTEM] Scoreboard: " + pp.getScores());
+    }
+
+    public static void setDrawer(boolean drawer) {
+        iAmDrawer = drawer;
+        System.out.println("[SYSTEM] You are " + (drawer ? "the drawer!" : "a guesser."));
+    }
+    public static void setMyId(int id){ myId = id; }
+    public static int getMyId(){ return myId; }
 }
