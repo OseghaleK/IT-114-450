@@ -1,14 +1,13 @@
-// UCID: oka
-// Date: 2025-07-29
-// Summary: Milestone-3 updates – adds away/spectate payloads and board export.
 package Server;
 
-import Server.GameRoom;
 import java.util.HashMap;
 import java.util.Map;
 
-import Common.Room;
-
+/**
+ * UCID: oka
+ * Date: 2025-07-25
+ * Summary: Manages rooms. Lobby is default; can create GameRooms.
+ */
 public class RoomManager {
     private final Map<String, Room> rooms = new HashMap<>();
 
@@ -17,13 +16,18 @@ public class RoomManager {
     }
 
     public synchronized Room getRoom(String name) {
-        return rooms.get(name);
+        return rooms.get(name.toLowerCase());
     }
 
     public synchronized Room getOrCreateRoom(String name, boolean gameRoom) {
+        name = name.toLowerCase();
         Room r = rooms.get(name);
         if (r == null) {
-            r = gameRoom ? new GameRoom(name, this) : new Room(name, this);
+            if (gameRoom) {
+                r = new GameRoom(name, this);
+            } else {
+                r = new Room(name, this);
+            }
             rooms.put(name, r);
         }
         return r;
@@ -33,3 +37,4 @@ public class RoomManager {
         return rooms.get("lobby");
     }
 }
+

@@ -1,6 +1,3 @@
-// UCID: oka
-// Date: 2025-07-29
-// Summary: Milestone-3 updates – adds away/spectate payloads and board export.
 package Client;
 
 import Common.*;
@@ -56,9 +53,7 @@ public class ClientMain {
             } else if (line.startsWith("/joinroom ")) {
                 send(new Payload(PayloadType.JOIN_ROOM, line.substring(10).trim()));
 
-                        } else if (line.equalsIgnoreCase("/ready") || line.equalsIgnoreCase("ready")) {
-                send(new Payload(PayloadType.MESSAGE, "READY"));
-} else if (line.equals("/leave")) {
+            } else if (line.equals("/leave")) {
                 send(new Payload(PayloadType.LEAVE_ROOM, ""));
 
             } else if (line.startsWith("/msg ")) {

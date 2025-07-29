@@ -1,0 +1,133 @@
+import java.util.*;
+
+public class GameRoom extends Room {
+
+    // simple scoreboard: clientId -> points
+    private final Map<Integer, Integer> points = new HashMap<>();
+
+    // readiness + round state
+    private final Set<Integer> ready = new HashSet<>();
+    private final Random rand = new Random();
+    private String currentWord = "";
+    private int drawerId = -1;
+
+    // board size for MS2
+    private static final int WIDTH = 20;
+    private static final int HEIGHT = 15;
+
+    // tiny word list for demo
+    private static final List<String> WORDS = Arrays.asList(
+            "apple", "house", "tree", "car", "dog", "cat", "phone", "book"
+    );
+
+    public GameRoom(String name) { super(name); }
+    public GameRoom(String name, RoomManager manager) { super(name, manager); }
+
+    public synchronized void onSessionStart() {
+        sendSystemToAll("Game session started.");
+        ready.clear();
+        currentWord = "";
+        drawerId = -1;
+    }
+
+    public void onJoin(ServerThread st) {
+        addMember(st);
+        synchronized (this) { ready.remove(st.getClientId()); }
+        sendSystemToAll(st.getClientName() + " joined.");
+    }
+
+    public void onLeave(ServerThread st) {
+        removeMember(st);
+        synchronized (this) { ready.remove(st.getClientId()); }
+        sendSystemToAll(st.getClientName() + " left.");
+    }
+
+    // ----- READY -----
+
+    public synchronized void markReady(int id) {
+        ready.add(id);
+        sendSystemToAll(getMemberName(id) + " is ready.");
+        if (allReady()) {
+            startRound();
+        }
+    }
+
+    public synchronized boolean allReady() {
+        int memberCount = getMembers().size();
+        return memberCount > 0 && ready.size() == memberCount;
+    }
+
+    private String getMemberName(int id) {
+        for (ServerThread m : getMembers()) {
+            if (m.getClientId() == id) return m.getClientName();
+        }
+        return "#" + id;
+    }
+
+    // ----- ROUND CONTROL -----
+
+    public synchronized void startRound() {
+        ready.clear();
+
+        List<ServerThread> members = getMembers();
+        if (members.isEmpty()) return;
+
+        ServerThread drawer = members.get(rand.nextInt(members.size()));
+        drawerId = drawer.getClientId();
+        currentWord = WORDS.get(rand.nextInt(WORDS.size()));
+        String blanks = "_".repeat(currentWord.length());
+
+        // tell clients board size and round start
+        broadcast(new DimensionPayload(WIDTH, HEIGHT));
+        broadcast(new RoundStartPayload(drawerId, blanks));
+    }
+
+    public synchronized void endRound(String reason) {
+        if (currentWord == null || currentWord.isEmpty()) return;
+        broadcast(new RoundEndPayload(currentWord));
+        sendSystemToAll("Round ended" + (reason == null ? "" : (": " + reason)));
+        // do not auto-start next round here; wait for /ready again
+        currentWord = "";
+        drawerId = -1;
+    }
+
+    // ----- GAME EVENTS -----
+
+    // Forward drawing to everyone; only drawer can draw.
+    public void handleDraw(ServerThread from, CoordPayload cp) {
+        synchronized (this) {
+            if (from.getClientId() != drawerId) {
+                from.send(Payload.systemMessage("You are not the drawer this round."));
+                return;
+            }
+        }
+        broadcast(cp);
+    }
+
+    // Very simple guess handler: correct -> +5 points and end round.
+    public void handleGuess(ServerThread from, String guess) {
+        String g = guess == null ? "" : guess.trim();
+        String word;
+        synchronized (this) {
+            word = currentWord;
+        }
+        if (!g.isEmpty() && word != null && word.equalsIgnoreCase(g)) {
+            int id = from.getClientId();
+            points.put(id, points.getOrDefault(id, 0) + 5);
+            sendSystemToAll(from.getClientName() + " guessed correctly! (+5)");
+            endRound("word was guessed");
+        } else {
+            // Optional: chat-style reveal of guesses
+            sendToAll(from.getClientName() + " guessed: " + guess, from);
+        }
+    }
+
+    // Example of sending a game update to everyone
+    public void broadcastGameUpdate(String msg) {
+        Payload p = new Payload(PayloadType.SERVER_NOTIFICATION, msg);
+        p.setRoom(getName());
+        for (ServerThread m : getMembers()) {
+            m.send(p);
+        }
+    }
+}

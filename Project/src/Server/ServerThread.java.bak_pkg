@@ -1,14 +1,5 @@
-// UCID: oka
-// Date: 2025-07-29
-// Summary: Milestone-3 updates – adds away/spectate payloads and board export.
 package Server;
 
-import Server.RoomManager;
-import Server.GameRoom;
-import Common.Room;
-import Common.CoordPayload;
-import Common.PayloadType;
-import Common.Payload;
 import Common.*;
 
 import java.io.ObjectInputStream;

@@ -1,0 +1,37 @@
+package Server;
+
+import Common.Payload;
+import Common.PayloadType;
+import Common.Room;
+import Common.RoomManager;
+import Server.ServerThread;
+
+public class GameRoom extends Room {
+
+    public GameRoom(String name) { super(name); }
+
+    public GameRoom(String name, RoomManager manager) { super(name, manager); }
+
+    public synchronized void onSessionStart() {
+        sendSystemToAll("Game session started.");
+    }
+
+    public void onJoin(ServerThread st) {
+        addMember(st);
+        sendSystemToAll(st.getClientName() + " joined.");
+    }
+
+    public void onLeave(ServerThread st) {
+        removeMember(st);
+        sendSystemToAll(st.getClientName() + " left.");
+    }
+
+    public void broadcastGameUpdate(String msg) {
+        Payload p = new Payload(PayloadType.SYSTEM);
+        p.setMessage(msg);
+        p.setRoom(getName());
+        for (ServerThread m : getMembers()) {
+            m.send(p);
+        }
+    }
+}

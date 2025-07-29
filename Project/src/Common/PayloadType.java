@@ -23,3 +23,4 @@ public enum PayloadType implements Serializable {
     ASSIGN_ID,
     SERVER_NOTIFICATION
 }
+

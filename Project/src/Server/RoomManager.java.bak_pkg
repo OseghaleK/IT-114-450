@@ -1,9 +1,5 @@
-// UCID: oka
-// Date: 2025-07-29
-// Summary: Milestone-3 updates – adds away/spectate payloads and board export.
 package Server;
 
-import Server.GameRoom;
 import java.util.HashMap;
 import java.util.Map;
 

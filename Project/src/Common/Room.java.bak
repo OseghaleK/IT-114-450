@@ -1,0 +1,61 @@
+package Common;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import Server.ServerThread;
+
+public class Room {
+    private final String name;
+    private final List<ServerThread> members = new ArrayList<>();
+    private RoomManager manager;
+
+    public Room(String name) { this.name = name; }
+
+    public Room(String name, RoomManager manager) {
+        this.name = name;
+        this.manager = manager;
+    }
+
+    public String getName() { return name; }
+
+    public RoomManager getManager() { return manager; }
+    public void setManager(RoomManager manager) { this.manager = manager; }
+
+    public void addMember(ServerThread st) {
+        if (st == null) return;
+        synchronized (members) {
+            if (!members.contains(st)) members.add(st);
+        }
+    }
+
+    public void removeMember(ServerThread st) {
+        if (st == null) return;
+        synchronized (members) { members.remove(st); }
+    }
+
+    public void sendToAll(String msg, ServerThread sender) {
+        Payload p = new Payload(PayloadType.MESSAGE);
+        p.setMessage(msg);
+        if (sender != null) {
+            p.setFrom(sender.getClientName());
+            p.setFromId(sender.getClientId());
+        }
+        p.setRoom(name);
+        synchronized (members) {
+            for (ServerThread m : members) { m.send(p); }
+        }
+    }
+
+    public void sendSystemToAll(String msg) {
+        Payload p = Payload.systemMessage(msg);
+        p.setRoom(name);
+        synchronized (members) {
+            for (ServerThread m : members) { m.send(p); }
+        }
+    }
+
+    public List<ServerThread> getMembers() {
+        synchronized (members) { return new ArrayList<>(members); }
+    }
+}

@@ -1,6 +1,3 @@
-// UCID: oka
-// Date: 2025-07-29
-// Summary: Milestone-3 updates – adds away/spectate payloads and board export.
 package Client;
 
 import Common.*;
@@ -45,12 +42,8 @@ public class PayloadHandler {
                 System.out.println("[SYSTEM] Round ended. Word was: " + rep.getWord());
                 break;
             }
-            case MESSAGE:
-                case SERVER_NOTIFICATION:
-                    System.out.println(p.getMessage());
-                    break;
             default:
                 System.out.println("[SERVER] " + p);
-            }
+        }
     }
 }
