@@ -62,7 +62,7 @@ Future Enhancements
 - Color selection for drawing
 - Turn timer implementation
 - Word difficulty levels system)
-### Github Link: (main branch with your final project)
+### Github Link: https://github.com/OseghaleK/IT-114-450/blob/main/ClientMain.java
 ### Your Name: Oseghale Akimien
 ### Course/Section: It 114- 450
  
